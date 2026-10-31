@@ -13,7 +13,7 @@ const avatars=['knight','rook','queen','king','bishop','pawn'];
 Deno.serve(async req=>{
  const origin=req.headers.get('origin')||'';
  const allowed=origin==='https://neon-knight-arena.vercel.app'||/^https:\/\/neon-knight-arena-[a-z0-9-]+-nikki-edu-ai\.vercel\.app$/.test(origin)||/^http:\/\/localhost:\d+$/.test(origin);
- const cors={'Access-Control-Allow-Origin':allowed?origin:'https://neon-knight-arena.vercel.app','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-player-token','Access-Control-Allow-Methods':'POST, OPTIONS','Vary':'Origin','Cache-Control':'no-store','Content-Type':'application/json'};
+ const cors={'Access-Control-Allow-Origin':allowed?origin:'https://neon-knight-arena.vercel.app','Access-Control-Allow-Headers':'authorization, apikey, content-type, x-player-token, x-email-session','Access-Control-Allow-Methods':'POST, OPTIONS','Vary':'Origin','Cache-Control':'no-store','Content-Type':'application/json'};
  const reply=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:cors});
  if(req.method==='OPTIONS')return new Response('ok',{headers:cors});
  if(origin&&!allowed)return reply({error:'Origin not allowed.'},403);
@@ -25,14 +25,35 @@ Deno.serve(async req=>{
   const ip=req.headers.get('x-forwarded-for')?.split(',')[0]||'unknown';
   const ipHash=await hash(secret+':nk:'+ip);
   await limit('request:'+ipHash,60,240);
+  let emailUser:any=null;
+  const emailSession=req.headers.get('x-email-session');
+  if(emailSession){
+   const response=await fetch(Deno.env.get('SUPABASE_URL')!+'/auth/v1/user',{headers:{apikey:secret,Authorization:'Bearer '+emailSession}});
+   if(!response.ok)throw new Problem('Your email session expired. Please sign in again.',401);
+   emailUser=await response.json();
+   if(!emailUser.id||!emailUser.email_confirmed_at||emailUser.is_anonymous)throw new Problem('Verify your email before continuing.',401);
+  }
+  if(a==='linkemail'){
+   if(!emailUser)throw new Problem('Verify your email first.',401);
+   const recovery=req.headers.get('x-player-token')||'';
+   if(!/^[a-f0-9]{64}$/.test(recovery))throw new Problem('Open your existing profile on its original device or restore its recovery key before linking.',401);
+   const existing=(await db('nk_accounts?token_hash=eq.'+await hash(recovery)))[0];
+   if(!existing)throw new Problem('The existing profile could not be authenticated.',401);
+   if(existing.email_user_id&&existing.email_user_id!==emailUser.id)throw new Problem('This profile is already linked to another email.');
+   const mapped=(await db('nk_accounts?email_user_id=eq.'+id(emailUser.id)))[0];
+   if(mapped&&mapped.id!==existing.id)throw new Problem('That email is already linked to another chess profile. Sign out to use that profile.');
+   if(!existing.email_user_id){const changed=await db('nk_accounts?id=eq.'+existing.id+'&email_user_id=is.null','PATCH',{email_user_id:emailUser.id});if(!changed.length)throw new Problem('Profile changed. Please try again.',409)}
+   return reply({profile:(await db('nk_profiles?id=eq.'+existing.id))[0],emailLinked:true});
+  }
   if(a==='signup'){
    await limit('signup:'+ipHash,3600,6);
    const username=clean(input.username,20,3);if(!/^[A-Za-z0-9_]+$/.test(username))throw new Problem('Use letters, numbers, and underscores.');
    if((await db('nk_profiles?select=id&username=ilike.'+encodeURIComponent(username))).length)throw new Problem('That username is already taken.');
    const token=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');
-   const account=(await db('nk_accounts','POST',{token_hash:await hash(token)}))[0];
+   if(emailUser&&(await db('nk_accounts?email_user_id=eq.'+id(emailUser.id))).length)throw new Problem('This email already has a chess profile. Sign in to use it.');
+   const account=(await db('nk_accounts','POST',{token_hash:await hash(token),...(emailUser?{email_user_id:emailUser.id}:{})}))[0];
    let profile;try{profile=(await db('nk_profiles','POST',{id:account.id,username,bio:clean(input.bio||'',160,0),avatar:avatars.includes(input.avatar)?input.avatar:'knight'}))[0]}catch(e){await db('nk_accounts?id=eq.'+account.id,'DELETE');throw e}
-   return reply({profile,token});
+   return reply({profile,token,emailLinked:!!emailUser});
   }
   if(a==='feed'){
    const [profiles,messages,posts,games]=await Promise.all([db('nk_profiles?select=*&order=created_at.desc&limit=200'),db('nk_messages?select=*&order=created_at.desc&limit=60'),db('nk_posts?select=*&order=created_at.desc&limit=40'),db('nk_games?select=*&order=updated_at.desc&limit=150')]);
@@ -41,14 +62,15 @@ Deno.serve(async req=>{
   if(a==='game'){const game=(await db('nk_games?id=eq.'+id(input.id)))[0];if(!game)throw new Problem('Game not found.',404);return reply({game})}
   if(a==='thread'){return reply({replies:await db('nk_replies?post_id=eq.'+id(input.id)+'&order=created_at.asc&limit=100')})}
   const token=req.headers.get('x-player-token')||'';
-  if(!/^[a-f0-9]{64}$/.test(token))throw new Problem('Create a profile or restore your recovery key first.',401);
-  const account=(await db('nk_accounts?select=id&token_hash=eq.'+await hash(token)))[0];
+  if(!emailUser&&!/^[a-f0-9]{64}$/.test(token))throw new Problem('Sign in with email, create a profile, or restore your recovery key first.',401);
+  const account=emailUser?(await db('nk_accounts?select=id,email_user_id&email_user_id=eq.'+id(emailUser.id)))[0]:(await db('nk_accounts?select=id,email_user_id&token_hash=eq.'+await hash(token)))[0];
+  if(!account&&emailUser&&a==='me')return reply({profile:null,emailLinked:false,emailVerified:true});
   if(!account)throw new Problem('Recovery key not recognized.',401);
   const uid=account.id;
-  if(a==='me'){return reply({profile:(await db('nk_profiles?id=eq.'+uid))[0]})}
+  if(a==='me'){return reply({profile:(await db('nk_profiles?id=eq.'+uid))[0],emailLinked:!!account.email_user_id})}
   if(a==='profile'){
    await limit('profile:'+uid,60,10);const username=clean(input.username,20,3);if(!/^[A-Za-z0-9_]+$/.test(username))throw new Problem('Use letters, numbers, and underscores.');
-   return reply({profile:(await db('nk_profiles?id=eq.'+uid,'PATCH',{username,bio:clean(input.bio||'',160,0),avatar:avatars.includes(input.avatar)?input.avatar:'knight'}))[0]});
+   return reply({profile:(await db('nk_profiles?id=eq.'+uid,'PATCH',{username,bio:clean(input.bio||'',160,0),avatar:avatars.includes(input.avatar)?input.avatar:'knight'}))[0],emailLinked:!!account.email_user_id});
   }
   if(a==='message'||a==='post'||a==='reply'){
    await limit(a+':'+uid,a==='post'?30:4,1);

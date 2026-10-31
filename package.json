@@ -1,0 +1,1 @@
+{"name":"neon-knight-arena","version":"1.0.0","private":true,"type":"module","scripts":{"build":"node build.mjs","test":"node test.mjs"},"dependencies":{"chess.js":"1.4.0"},"devDependencies":{"esbuild":"0.28.2"}}

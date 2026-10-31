@@ -19,7 +19,7 @@ The chess backend is active on Supabase project `tunuexbkkakiawsyanqu`, approved
 
 Service credentials are read only from the Edge Function environment and are never put in the frontend or repository. `schema.sql` is a historical setup file; do not reapply it to the existing tables.
 
-Online profiles support Supabase verified email sign-in plus a private 256-bit recovery key as a backup. The email UI and backend mapping are deployed; dashboard URL allowlisting and a configured public SMTP sender are required before public delivery can be claimed as working. Use the profile’s email button to link an existing profile, or sign in with email and finish a new profile.
+Online profiles support Supabase verified email sign-in plus a private 256-bit recovery key as a backup. The email UI and backend mapping are deployed; the canonical chess callback URL is allowlisted, but a configured public SMTP sender is still required before public delivery can be claimed as working. Dashboard inspection confirmed custom SMTP is currently disabled. Use the profile’s email button to link an existing profile, or sign in with email and finish a new profile.
 
 `email-migration.sql` adds a private unique mapping from chess accounts to Supabase Auth user IDs. Only a live verified email session and the original recovery proof can link an existing profile. Public feeds do not expose email addresses.
 

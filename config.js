@@ -1,1 +1,1 @@
-window.NK_CONFIG={ready:false,url:'https://tunuexbkkakiawsyanqu.supabase.co/functions/v1/neon-knight-api',key:''};
+window.NK_CONFIG={"ready": true, "url": "https://tunuexbkkakiawsyanqu.supabase.co/functions/v1/neon-knight-api", "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR1bnVleGJra2FraWF3c3lhbnF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTg0NDgsImV4cCI6MjEwNDc5NDQ0OH0.Q53GEv0m_Elfm4JwrKZHS3g0dPwM3iDm6MU0dDlRoek"};
